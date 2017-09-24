@@ -36,16 +36,17 @@ const char* const RECIPES[] PROGMEM = {
 #define SCREEN_SETTINGS_MENU      4
 #define SCREEN_CREDITS            5
 #define SCREEN_DEBUG              6
-#define SCREEN_RECIPE_BREWING            7
+#define SCREEN_RECIPE_BREWING     7
 #define SCREEN_MANUAL_BREWING     8
 
 // UI DELAYS
 
-#define WELCOME_DELAY        300
-#define SENSORS_DELAY        1000
-#define RENDER_DELAY         200
-#define BACKLIGHT_DELAY      200
-#define BUTTONS_DELAY        200
+#define WELCOME_DELAY         300
+#define SENSORS_DELAY         1000
+#define RENDER_DELAY          200
+#define BACKLIGHT_DELAY       200
+#define BUTTONS_DELAY         200
+#define PERSIST_BREWING_DELAY 60000 // Every minute
 
 // SETTINGS
 
@@ -77,9 +78,19 @@ const char DEGREE_SYMBOL = char(223);
 
 // BREWING!
 
-boolean BREWING_IN_PROGRESS;
-String BREWING_RECIPE;
+#define BREWING_MODE_MANUAL 1
+#define BREWING_MODE_RECIPE 2
+
+boolean      BREWING_WORK_IN_PROGRESS = false;
+
+byte         BREWING_MODE;
 unsigned int BREWING_PASSED;
+boolean      BREWING_PAUSED = false;
+
+int          BREWING_MANUAL_TEMP;
+int          BREWING_MANUAL_TIME;
+
+String       BREWING_RECIPE;
 
 // UI STATE
 
@@ -102,11 +113,17 @@ unsigned long fnDelay_render = 0;
 unsigned long fnDelay_requestTemperatures = 0;
 unsigned long fnDelay_requestButtonsState = 0;
 unsigned long fnDelay_adjustBacklight = 0;
+unsigned long fnDelay_persistBrewingState = 0;
 
 int freeRam () {
   extern int __heap_start, *__brkval;
   int v;
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
+}
+
+void persistBrewingState() {
+  if (millis() - fnDelay_persistBrewingState < PERSIST_BREWING_DELAY) return;
+  fnDelay_persistBrewingState = millis();
 }
 
 void adjustBacklight() {
@@ -471,6 +488,7 @@ void setup() {
 void loop() {
   requestTemperatures();
   requestButtonsState();
-  render();
   adjustBacklight();
+  persistBrewingState();
+  render();
 }
