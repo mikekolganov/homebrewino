@@ -93,9 +93,12 @@ OneWire oneWire(D_PIN_ONE_WIRE);
 DallasTemperature sensors(&oneWire);
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-float   THERMOMETER_ONE;
-float   THERMOMETER_TWO;
-byte    HEATER_ENABLED = false;
+float TEMPERATURE;
+float TEMPERATURE_PREVIOUS;
+float TEMPERATURE_ONE;
+float TEMPERATURE_TWO;
+bool  TEMPERATURE_GOES_DOWN = false;
+bool  HEATER_ENABLED = false;
 
 // SYMBOLS
 const char POINTER_SYMBOL = char(165);
@@ -182,8 +185,17 @@ void requestTemperatureSensors() {
   fnThrottle_requestTemperatureSensors = millis();
 
   sensors.requestTemperatures();
-  THERMOMETER_ONE = sensors.getTempCByIndex(0);
-  THERMOMETER_TWO = sensors.getTempCByIndex(1);
+  TEMPERATURE_ONE = sensors.getTempCByIndex(0);
+  TEMPERATURE_TWO = sensors.getTempCByIndex(1);
+  TEMPERATURE_PREVIOUS = TEMPERATURE;
+  TEMPERATURE = TEMPERATURE_ONE + TEMPERATURE_TWO / 2;
+
+  if ((TEMPERATURE_PREVIOUS) < (TEMPERATURE)) {
+    TEMPERATURE_GOES_DOWN = true;
+  }
+  else {
+    TEMPERATURE_GOES_DOWN = false;
+  }
 }
 
 void buttonSound() {
@@ -662,14 +674,14 @@ void renderRecipeBrewing() {
   };
 
   lcd.clear();
-  lcd.print(String(THERMOMETER_ONE, 1) + DEGREE_SYMBOL + "/" + String(THERMOMETER_TWO, 1) + DEGREE_SYMBOL);
+  lcd.print(String(TEMPERATURE_ONE, 1) + DEGREE_SYMBOL + "/" + String(TEMPERATURE_TWO, 1) + DEGREE_SYMBOL);
   lcd.setCursor(0, 1);
   lcd.print(horizontalCarousel(seats, 3, true, 16));
 }
 
 void renderManualBrewing() {
   lcd.clear();
-  lcd.print(String(THERMOMETER_ONE, 1) + DEGREE_SYMBOL + "/" + String(THERMOMETER_TWO, 1) + DEGREE_SYMBOL);
+  lcd.print(String(TEMPERATURE_ONE, 1) + DEGREE_SYMBOL + "/" + String(TEMPERATURE_TWO, 1) + DEGREE_SYMBOL);
   lcd.setCursor(0, 1);
   lcd.print("MANUAL BREWING");
 }
@@ -720,6 +732,49 @@ unsigned int getTotalMashTime(String recipe) {
   return totalTime;
 }
 
+unsigned int estimateHeatingTime(unsigned int fromTemp, unsigned int toTemp) {
+  float hours = (SETTING_TANK_VOLUME * 1.163 * (toTemp - fromTemp)) / SETTING_HEATER_POWER;
+  return hours / 60 / 60;
+}
+
+unsigned int estimateTotalTime(String recipe, unsigned int timePassed, int currentTemperature) {
+  unsigned int totalTime = 0;
+
+  int segmentsCount = getSegmentsCount(recipe);
+  for (int i = 0; i < segmentsCount; i++) {
+    String segment = getSegment(recipe, i);
+    int segmentTemp = getSegmentTemperature(segment);
+    int previousSegmentTemp;
+    if (i == 0) {
+      previousSegmentTemp = segmentTemp;
+      totalTime += getSegmentDuration(segment) * 60;
+      if (currentTemperature < segmentTemp) {
+        totalTime += estimateHeatingTime(currentTemperature, segmentTemp);
+      }
+    }
+    else {
+      totalTime += getSegmentDuration(segment) * 60;
+      totalTime += estimateHeatingTime(previousSegmentTemp, segmentTemp);
+    }
+  }
+  return totalTime;
+}
+
+unsigned int getTimePassedInCurrentSegment(String recipe, unsigned int timePassed) {
+  int segmentsCount = getSegmentsCount(recipe);
+  for (int i = 0; i < segmentsCount; i++) {
+    String segment = getSegment(recipe, i);
+    int duration = getSegmentDuration(segment) * 60;
+
+    if (timePassed <= duration) {
+      return timePassed;
+    }
+    else {
+      timePassed -= duration;
+    }
+  }
+}
+
 String getCurrentSegment(String recipe, unsigned int timePassed) {
   unsigned int duration = 0;
   int segmentsCount = getSegmentsCount(recipe);
@@ -743,10 +798,6 @@ int getCurrentSegmentTemperature(String recipe, unsigned int timePassed) {
   return getSegmentTemperature(segment);
 }
 
-bool isCurrentTemperatureGood(int desiredTemperature) {
-  return (THERMOMETER_ONE + THERMOMETER_TWO) / 2 >= desiredTemperature;
-}
-
 boolean recordMashTime(unsigned int totalMashTime) {
   if (BREWIING_TIME_PROCESSED < totalMashTime) {
     if ((millis() % BREW_THROTTLE) == (millis() % 1000)) {
@@ -767,7 +818,7 @@ void brewRecipe() {
   int segmentTemp = getCurrentSegmentTemperature(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED);
 
   if (BREWING_STATE == BREWING_STATE_WORKING) {
-    if (isCurrentTemperatureGood(segmentTemp)) {
+    if (TEMPERATURE >= segmentTemp) {
       turnHeaterOff();
       if (! recordMashTime(totalMashTime)) {
         BREWING_STATE = BREWING_STATE_COMPLETED;
