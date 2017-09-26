@@ -21,12 +21,12 @@ const char* const RECIPES[] PROGMEM = {
   RECIPE_6,
 };
 
-const char SEGMENTS_DELIMITER = '|';
-const char SEGMENT_VALUES_DELIMITER = '*';
-const char REMINDERS_DELIMITER = ';';
+const char SEGMENTS_DELIMITER        = '|';
+const char SEGMENT_VALUES_DELIMITER  = '*';
+const char REMINDERS_DELIMITER       = ';';
 const char REMINDER_VALUES_DELIMITER = '@';
-const char REMINDER_BEGIN = '(';
-const char REMINDER_END = ')';
+const char REMINDER_BEGIN            = '(';
+const char REMINDER_END              = ')';
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -40,21 +40,21 @@ const char REMINDER_END = ')';
 #define D_PIN_ONE_WIRE  12 // Temp sensors
 #define D_PIN_BACKLIGHT 10 // Display backlight control
 #define D_PIN_BUZZER    11 // Piezo buzzer
-#define D_PIN_HEATER    2 // Heater relay
-#define A_PIN_KEYS 0   // Arrow keys
-#define A_PIN_ESCAPE 1 // Reset key, used as Esc
+#define D_PIN_HEATER    2  // Heater relay
+#define A_PIN_KEYS      0  // Arrow keys
+#define A_PIN_ESCAPE    1  // Reset key, used as Esc
 
 // UI STATE
 int  ACTIVE_SCREEN = 1;
 byte MENU_LEVEL = 0;
 char MENU_ACTIVE[10]          = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 char MENU_ACTIVE_PREVIOUS[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-int CAROUSEL_ACTIVE_SLIDE = 0;
+int CAROUSEL_ACTIVE_SLIDE               = 0;
 unsigned long CAROUSEL_SLIDE_CHANGED_AT = 0;
-boolean CAROUSEL_RESET_SLIDE = false;
-boolean CAROUSEL_SLOWDONW_NEXT_TICK = false;
-boolean CAROUSEL_NEXT_SLIDE = false; 
-boolean CAROUSEL_PREV_SLIDE = false; 
+boolean CAROUSEL_RESET_SLIDE            = false;
+boolean CAROUSEL_SLOWDONW_NEXT_TICK     = false;
+boolean CAROUSEL_NEXT_SLIDE             = false; 
+boolean CAROUSEL_PREV_SLIDE             = false; 
 
 // UI SCREENS
 #define SCREEN_WELCOME             1
@@ -102,7 +102,7 @@ bool  HEATER_ENABLED = false;
 
 // SYMBOLS
 const char POINTER_SYMBOL = char(165);
-const char DEGREE_SYMBOL = char(223);
+const char DEGREE_SYMBOL  = char(223);
 
 // BREWING
 unsigned int BREWIING_TIME_PROCESSED = 0;
@@ -138,13 +138,13 @@ boolean BUTTON_ESCAPE = false;
 #define BREW_THROTTLE            200
 #define HEATER_THROTTLE          200
 
-unsigned long fnThrottle_render              = 0;
+unsigned long fnThrottle_render                    = 0;
 unsigned long fnThrottle_requestTemperatureSensors = 0;
-unsigned long fnThrottle_requestPressedButtons = 0;
-unsigned long fnThrottle_setBacklightLevel    = 0;
-unsigned long fnThrottle_writeBrewingState          = 0;
-unsigned long fnThrottle_brew                = 0;
-unsigned long fnThrottle_setHeaterState       = 0;
+unsigned long fnThrottle_requestPressedButtons     = 0;
+unsigned long fnThrottle_setBacklightLevel         = 0;
+unsigned long fnThrottle_writeBrewingState         = 0;
+unsigned long fnThrottle_brew                      = 0;
+unsigned long fnThrottle_setHeaterState            = 0;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -154,16 +154,16 @@ int freeRam () {
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
 
-void setBacklightLevel() {
-  if (millis() - fnThrottle_setBacklightLevel < BACKLIGHT_THROTTLE) return;
-  fnThrottle_setBacklightLevel = millis();
+void setBacklightLevel(unsigned long now) {
+  if (now - fnThrottle_setBacklightLevel < BACKLIGHT_THROTTLE) return;
+  fnThrottle_setBacklightLevel = now;
 
   analogWrite(D_PIN_BACKLIGHT, round(255 / 100 * SETTING_BACKLIGHT));
 }
 
-void setHeaterState() {
-  if (millis() - fnThrottle_setHeaterState < HEATER_THROTTLE) return;
-  fnThrottle_setHeaterState = millis();
+void setHeaterState(unsigned long now) {
+  if (now - fnThrottle_setHeaterState < HEATER_THROTTLE) return;
+  fnThrottle_setHeaterState = now;
 
   if (HEATER_ENABLED) {
     digitalWrite(D_PIN_HEATER, HIGH);
@@ -180,9 +180,9 @@ void turnHeaterOff() {
   HEATER_ENABLED = false;
 }
 
-void requestTemperatureSensors() {
-  if (millis() - fnThrottle_requestTemperatureSensors < SENSORS_THROTTLE) return;
-  fnThrottle_requestTemperatureSensors = millis();
+void requestTemperatureSensors(unsigned long now) {
+  if (now - fnThrottle_requestTemperatureSensors < SENSORS_THROTTLE) return;
+  fnThrottle_requestTemperatureSensors = now;
 
   sensors.requestTemperatures();
   TEMPERATURE_ONE = sensors.getTempCByIndex(0);
@@ -204,9 +204,9 @@ void buttonSound() {
   pinMode(D_PIN_BUZZER, INPUT);
 }
 
-void requestPressedButtons() {
-  if (millis() - fnThrottle_requestPressedButtons < BUTTONS_THROTTLE) return;
-  fnThrottle_requestPressedButtons = millis();
+void requestPressedButtons(unsigned long now) {
+  if (now - fnThrottle_requestPressedButtons < BUTTONS_THROTTLE) return;
+  fnThrottle_requestPressedButtons = now;
 
   if (BUTTON_UP || BUTTON_RIGHT || BUTTON_DOWN || BUTTON_LEFT || BUTTON_SELECT || BUTTON_ESCAPE) return;
 
@@ -253,9 +253,9 @@ void readBrewingState() {
   // TODO: implement
 }
 
-void writeBrewingState() {
-  if (millis() - fnThrottle_writeBrewingState < PERSIST_BREWING_THROTTLE) return;
-  fnThrottle_writeBrewingState = millis();
+void writeBrewingState(unsigned long now) {
+  if (now - fnThrottle_writeBrewingState < PERSIST_BREWING_THROTTLE) return;
+  fnThrottle_writeBrewingState = now;
   // TODO: implement
 }
 
@@ -686,9 +686,9 @@ void renderManualBrewing() {
   lcd.print("MANUAL BREWING");
 }
 
-void render() {
-  if (millis() - fnThrottle_render < RENDER_THROTTLE) return;
-  fnThrottle_render = millis();
+void render(unsigned long now) {
+  if (now - fnThrottle_render < RENDER_THROTTLE) return;
+  fnThrottle_render = now;
 
   switch (ACTIVE_SCREEN) {
     case SCREEN_WELCOME:
@@ -788,11 +788,13 @@ String getCurrentSegment(String recipe, unsigned int timePassed) {
   }
 }
 
+// Remove this in favor to getCurrentSegment()
 unsigned int getCurrentSegmentDuration(String recipe, unsigned int timePassed) {
   String segment = getCurrentSegment(recipe, timePassed);
   return getSegmentDuration(segment) * 60;
 }
 
+// Remove this in favor to getCurrentSegment()
 int getCurrentSegmentTemperature(String recipe, unsigned int timePassed) {
   String segment = getCurrentSegment(recipe, timePassed);
   return getSegmentTemperature(segment);
@@ -831,9 +833,9 @@ void brewRecipe() {
 
 void brewManual() {}
 
-void brew() {
-  if (millis() - fnThrottle_brew < BREW_THROTTLE) return;
-  fnThrottle_brew = millis();
+void brew(unsigned long now) {
+  if (now - fnThrottle_brew < BREW_THROTTLE) return;
+  fnThrottle_brew = now;
 
   switch (BREWING_MODE) {
     case BREWING_MODE_RECIPE:
@@ -861,11 +863,12 @@ void setup() {
 }
 
 void loop() {
-  requestTemperatureSensors();
-  requestPressedButtons();
-  setBacklightLevel();
-  setHeaterState();
-  writeBrewingState();
-  render();
-  brew();
+  int now = millis();
+  requestTemperatureSensors(now);
+  requestPressedButtons(now);
+  setBacklightLevel(now);
+  setHeaterState(now);
+  writeBrewingState(now);
+  render(now);
+  brew(now);
 }
