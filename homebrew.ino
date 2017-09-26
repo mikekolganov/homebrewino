@@ -28,6 +28,8 @@ const char REMINDER_VALUES_DELIMITER = '@';
 const char REMINDER_BEGIN = '(';
 const char REMINDER_END = ')';
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
 // INCLUDES
 #include <LiquidCrystal.h>
 #include <OneWire.h>
@@ -38,20 +40,19 @@ const char REMINDER_END = ')';
 #define D_PIN_ONE_WIRE  12 // Temp sensors
 #define D_PIN_BACKLIGHT 10 // Display backlight control
 #define D_PIN_BUZZER    11 // Piezo buzzer
-
+#define D_PIN_HEATER    2 // Heater relay
 #define A_PIN_KEYS 0   // Arrow keys
 #define A_PIN_ESCAPE 1 // Reset key, used as Esc
 
 // UI STATE
-int ACTIVE_SCREEN = 1;
-
+int  ACTIVE_SCREEN = 1;
 byte MENU_LEVEL = 0;
 char MENU_ACTIVE[10]          = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 char MENU_ACTIVE_PREVIOUS[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
-
 int CAROUSEL_ACTIVE_SLIDE = 0;
-int CAROUSEL_SLIDE_CHANGED_AT = 0;
+unsigned long CAROUSEL_SLIDE_CHANGED_AT = 0;
 boolean CAROUSEL_RESET_SLIDE = false;
+boolean CAROUSEL_SLOWDONW_NEXT_TICK = false;
 boolean CAROUSEL_NEXT_SLIDE = false; 
 boolean CAROUSEL_PREV_SLIDE = false; 
 
@@ -68,7 +69,7 @@ boolean CAROUSEL_PREV_SLIDE = false;
 // UI DELAYS
 #define WELCOME_DELAY  300
 #define BLINK_DELAY    700
-#define CAROUSEL_DELAY 2500
+#define CAROUSEL_DELAY 1000
 
 // UI DIALOGS
 #define DIALOG_MODE_QUESTION 1
@@ -92,31 +93,28 @@ OneWire oneWire(D_PIN_ONE_WIRE);
 DallasTemperature sensors(&oneWire);
 LiquidCrystal lcd(8, 9, 4, 5, 6, 7);
 
-float THERMOMETER_ONE;
-float THERMOMETER_TWO;
-
-#define HEATER_MODE_OFF 0
-#define HEATER_MODE_ON  1
-byte    HEATER_MODE = HEATER_MODE_OFF;
+float   THERMOMETER_ONE;
+float   THERMOMETER_TWO;
+byte    HEATER_ENABLED = false;
 
 // SYMBOLS
 const char POINTER_SYMBOL = char(165);
 const char DEGREE_SYMBOL = char(223);
 
 // BREWING
-unsigned int BREWIING_TIME_PROCESSED;
+unsigned int BREWIING_TIME_PROCESSED = 0;
 
-byte    BREWING_MODE;
 #define BREWING_MODE_MANUAL 1
 #define BREWING_MODE_RECIPE 2
+byte    BREWING_MODE;
 
-byte    BREWING_STATE;
 #define BREWING_STATE_IDLE      1
 #define BREWING_STATE_WORKING   2
 #define BREWING_STATE_PAUSED    3
 #define BREWING_STATE_COMPLETED 4
+byte    BREWING_STATE = BREWING_STATE_IDLE;
 
-String BREWING_RECIPE_STRING;
+String BREWING_CURRENT_RECIPE;
 int    BREWING_MANUAL_TEMP;
 int    BREWING_MANUAL_TIME;
 
@@ -134,14 +132,16 @@ boolean BUTTON_ESCAPE = false;
 #define BUTTONS_THROTTLE         200
 #define BACKLIGHT_THROTTLE       200
 #define PERSIST_BREWING_THROTTLE 60000 // Every minute, save current brewing state for recovering after unexpected power off / hanging
-#define BREW_THROTTLE            1000
+#define BREW_THROTTLE            200
+#define HEATER_THROTTLE          200
 
 unsigned long fnThrottle_render              = 0;
-unsigned long fnThrottle_requestTemperatures = 0;
-unsigned long fnThrottle_requestButtonsState = 0;
-unsigned long fnThrottle_adjustBacklight     = 0;
-unsigned long fnThrottle_writeBrewingState   = 0;
+unsigned long fnThrottle_requestTemperatureSensors = 0;
+unsigned long fnThrottle_requestPressedButtons = 0;
+unsigned long fnThrottle_setBacklightLevel    = 0;
+unsigned long fnThrottle_writeBrewingState          = 0;
 unsigned long fnThrottle_brew                = 0;
+unsigned long fnThrottle_setHeaterState       = 0;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -151,16 +151,35 @@ int freeRam () {
   return (int) &v - (__brkval == 0 ? (int) &__heap_start : (int) __brkval);
 }
 
-void adjustBacklight() {
-  if (millis() - fnThrottle_adjustBacklight < BACKLIGHT_THROTTLE) return;
-  fnThrottle_adjustBacklight = millis();
+void setBacklightLevel() {
+  if (millis() - fnThrottle_setBacklightLevel < BACKLIGHT_THROTTLE) return;
+  fnThrottle_setBacklightLevel = millis();
 
   analogWrite(D_PIN_BACKLIGHT, round(255 / 100 * SETTING_BACKLIGHT));
 }
 
-void requestTemperatures() {
-  if (millis() - fnThrottle_requestTemperatures < SENSORS_THROTTLE) return;
-  fnThrottle_requestTemperatures = millis();
+void setHeaterState() {
+  if (millis() - fnThrottle_setHeaterState < HEATER_THROTTLE) return;
+  fnThrottle_setHeaterState = millis();
+
+  if (HEATER_ENABLED) {
+    digitalWrite(D_PIN_HEATER, HIGH);
+  } else {
+    digitalWrite(D_PIN_HEATER, LOW);
+  }
+}
+
+void turnHeaterOn() {
+  HEATER_ENABLED = true;
+}
+
+void turnHeaterOff() {
+  HEATER_ENABLED = false;
+}
+
+void requestTemperatureSensors() {
+  if (millis() - fnThrottle_requestTemperatureSensors < SENSORS_THROTTLE) return;
+  fnThrottle_requestTemperatureSensors = millis();
 
   sensors.requestTemperatures();
   THERMOMETER_ONE = sensors.getTempCByIndex(0);
@@ -173,9 +192,9 @@ void buttonSound() {
   pinMode(D_PIN_BUZZER, INPUT);
 }
 
-void requestButtonsState() {
-  if (millis() - fnThrottle_requestButtonsState < BUTTONS_THROTTLE) return;
-  fnThrottle_requestButtonsState = millis();
+void requestPressedButtons() {
+  if (millis() - fnThrottle_requestPressedButtons < BUTTONS_THROTTLE) return;
+  fnThrottle_requestPressedButtons = millis();
 
   if (BUTTON_UP || BUTTON_RIGHT || BUTTON_DOWN || BUTTON_LEFT || BUTTON_SELECT || BUTTON_ESCAPE) return;
 
@@ -340,16 +359,15 @@ int getReminderTime(String reminder) {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-String formatTime(unsigned int time, boolean withSeconds) {
-  // TODO: implement
-}
-
-String formatMinutes(unsigned int time) {
-  return formatTime(time, false);
-}
-
-String formatSeconds(unsigned int time) {
-  return formatTime(time, false);
+String formatTime(unsigned int seconds, boolean withSeconds, boolean blinkColon) {
+  int h = seconds / 3600;
+  int m = seconds % 3600 / 60;
+  String result = String(h) + ":" + (m < 10 ? "0" + String(m) : String(m));
+  if (withSeconds) {
+    int s = seconds % 3600 % 60;
+    result += ":" + (s < 10 ? "0" + String(s) : String(s));
+  }
+  return result;
 }
 
 String horizontalCarousel(String items[], int itemsCount, boolean autoPlay, int rowLength) {
@@ -365,7 +383,13 @@ String horizontalCarousel(String items[], int itemsCount, boolean autoPlay, int 
     else if (CAROUSEL_PREV_SLIDE) {
       CAROUSEL_ACTIVE_SLIDE = (CAROUSEL_ACTIVE_SLIDE == 0) ? itemsCount - 1 : CAROUSEL_ACTIVE_SLIDE - 1;
     }
-    CAROUSEL_SLIDE_CHANGED_AT = millis();
+    if (CAROUSEL_SLOWDONW_NEXT_TICK) {
+      CAROUSEL_SLOWDONW_NEXT_TICK = false;
+      CAROUSEL_SLIDE_CHANGED_AT = millis() + CAROUSEL_DELAY * 5;
+    }
+    else {
+      CAROUSEL_SLIDE_CHANGED_AT = millis();
+    }
     CAROUSEL_NEXT_SLIDE = false;
     CAROUSEL_PREV_SLIDE = false;
   }
@@ -378,10 +402,9 @@ String horizontalCarousel(String items[], int itemsCount, boolean autoPlay, int 
 
 
   String result;
-  for (int i = 0; i < rowLength - 1; i++) {
+  for (int i = 0; i < rowLength; i++) {
     result += (items[CAROUSEL_ACTIVE_SLIDE].length() > i) ? String(items[CAROUSEL_ACTIVE_SLIDE].charAt(i)) : " ";
   }
-  result += ">";
   return result;
 }
 
@@ -394,6 +417,20 @@ String blinkOnCondition(String valueToBlink, boolean condition) {
     return result;
   }
   return valueToBlink;
+}
+
+String centerAlign(String text, int rowLength) {
+  String centered;
+  int textLength = text.length();
+  int margin = (rowLength - textLength) / 2;
+  for (int i = 0; i < rowLength; i++) {
+    if ((i >= margin) && (i < margin + textLength)) {
+      centered += text.charAt(i - margin);
+      continue;
+    }
+    centered += " ";
+  }
+  return centered;
 }
 
 String wrapAlign(String firstPart, String secondPart, int rowLength) {
@@ -462,7 +499,6 @@ void renderIterableList(String items[], int length) {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void renderDialog(String message, byte mode) {
-
 }
 
 void renderWelcome() {
@@ -471,26 +507,22 @@ void renderWelcome() {
   lcd.setCursor(0, 1);
   lcd.print("HOMEBREW ROBOT!");
   delay(WELCOME_DELAY);
-
-  ACTIVE_SCREEN = 2;
+  ACTIVE_SCREEN = SCREEN_MAIN_MENU;
 }
 
 void renderMainMenu() {
-  MENU_LEVEL = SCREEN_MAIN_MENU;
-
   String items[4];
   int itemIndex = 0;
-
+  
   items[itemIndex++] = "CHOOSE RECIPE";
   items[itemIndex++] = "MANUAL BREWING";
   items[itemIndex++] = "SETTINGS";
   items[itemIndex++] = "CREDITS";
-
+  
+  MENU_LEVEL = SCREEN_MAIN_MENU;
   renderIterableList(items, itemIndex);
 
   if (BUTTON_SELECT) {
-    releaseButtonsState();
-
     if (items[MENU_ACTIVE[MENU_LEVEL]] == "CHOOSE RECIPE") {
       ACTIVE_SCREEN = SCREEN_CHOOSE_RECIPE_MENU;
     }
@@ -503,12 +535,11 @@ void renderMainMenu() {
     else if (items[MENU_ACTIVE[MENU_LEVEL]] == "CREDITS") {
       ACTIVE_SCREEN = SCREEN_CREDITS;
     }
+    releaseButtonsState();
   }
 }
 
 void renderChooseRecipeMenu() {
-  MENU_LEVEL = SCREEN_CHOOSE_RECIPE_MENU;
-
   String items[RECIPES_COUNT];
 
   for (int i = 0; i < RECIPES_COUNT; i++) {
@@ -516,18 +547,18 @@ void renderChooseRecipeMenu() {
     items[i] = getRecipeName(recipe);
   }
 
+  MENU_LEVEL = SCREEN_CHOOSE_RECIPE_MENU;
   renderIterableList(items, RECIPES_COUNT);
 
   if (BUTTON_SELECT) {
-    ACTIVE_SCREEN = SCREEN_PREVIEW_RECIPE_MENU;
     CAROUSEL_RESET_SLIDE = true;
-    BREWING_RECIPE_STRING = getRecipe(MENU_ACTIVE[MENU_LEVEL]);
+    BREWING_CURRENT_RECIPE = getRecipe(MENU_ACTIVE[MENU_LEVEL]);
     releaseButtonsState();
+    ACTIVE_SCREEN = SCREEN_PREVIEW_RECIPE_MENU;
   }
   else if (BUTTON_ESCAPE) {
-    ACTIVE_SCREEN = SCREEN_MAIN_MENU;
-    MENU_LEVEL = 0;
     releaseButtonsState();
+    ACTIVE_SCREEN = SCREEN_MAIN_MENU;
   }
 }
 
@@ -535,52 +566,56 @@ void renderPreviewRecipeMenu() {
   String seats[10];
   int seatsCount = 0;
 
-  seats[seatsCount++] = getRecipeName(BREWING_RECIPE_STRING);
-  int segmentsCount = getSegmentsCount(BREWING_RECIPE_STRING);
+  seats[seatsCount++] = centerAlign(getRecipeName(BREWING_CURRENT_RECIPE), 16);
+  int segmentsCount = getSegmentsCount(BREWING_CURRENT_RECIPE);
   for (int i = 0; i < segmentsCount; i++) {
-    String segment = getSegment(BREWING_RECIPE_STRING, i);
+    String segment = getSegment(BREWING_CURRENT_RECIPE, i);
     int temperature = getSegmentTemperature(segment);
     int duration = getSegmentDuration(segment);
-    seats[seatsCount++] = String(i + 1) + ": " + String(duration) + " " + String(temperature) + DEGREE_SYMBOL;
+    seats[seatsCount++] = centerAlign(String(temperature) + DEGREE_SYMBOL + " " + formatTime(duration * 60, false, false), 16);
   }
 
   lcd.clear();
   lcd.print(horizontalCarousel(seats, seatsCount, true, 16));
   lcd.setCursor(0, 1);
-  lcd.print(wrapAlign(String(POINTER_SYMBOL) + "YES", "NO", 16));
+  lcd.print(wrapAlign(" BACK", String(POINTER_SYMBOL) + "START", 16));
 
   if (BUTTON_SELECT) {
-    ACTIVE_SCREEN = SCREEN_RECIPE_BREWING;
+    CAROUSEL_RESET_SLIDE = true;
     BREWING_MODE = BREWING_MODE_RECIPE;
     releaseButtonsState();
+    ACTIVE_SCREEN = SCREEN_RECIPE_BREWING;
   }
   else if (BUTTON_RIGHT) {
     CAROUSEL_NEXT_SLIDE = true;
+    CAROUSEL_SLOWDONW_NEXT_TICK = true;
+    releaseButtonsState();
   }
   else if (BUTTON_LEFT) {
     CAROUSEL_PREV_SLIDE = true;
+    CAROUSEL_SLOWDONW_NEXT_TICK = true;
+    releaseButtonsState();
   }
   else if (BUTTON_ESCAPE) {
-    ACTIVE_SCREEN = SCREEN_CHOOSE_RECIPE_MENU;
     releaseButtonsState();
+    ACTIVE_SCREEN = SCREEN_CHOOSE_RECIPE_MENU;
   }
 }
 
 void renderSettingsMenu() {
-  MENU_LEVEL = SCREEN_SETTINGS_MENU;
   String items[3];
 
   items[0] = wrapAlign("POWER", blinkOnCondition(String(SETTING_HEATER_POWER), MENU_ACTIVE[MENU_LEVEL] == 0) + "W", 15);
   items[1] = wrapAlign("TANK", blinkOnCondition(String(SETTING_TANK_VOLUME), MENU_ACTIVE[MENU_LEVEL] == 1) + "L", 15);
   items[2] = wrapAlign("BACKLIGHT", blinkOnCondition(String(SETTING_BACKLIGHT), MENU_ACTIVE[MENU_LEVEL] == 2) + "%", 15);
 
+  MENU_LEVEL = SCREEN_SETTINGS_MENU;
   renderIterableList(items, 3);
 
   if (BUTTON_ESCAPE) {
-    MENU_LEVEL = 0;
-    ACTIVE_SCREEN = SCREEN_MAIN_MENU;
     writeSettings();
     releaseButtonsState();
+    ACTIVE_SCREEN = SCREEN_MAIN_MENU;
   }
   else if (BUTTON_LEFT || BUTTON_RIGHT) {
     switch (MENU_ACTIVE[MENU_LEVEL]) {
@@ -608,17 +643,28 @@ void renderCredits() {
   lcd.print("Omsk, 2017");
 
   if (BUTTON_ESCAPE) {
-    MENU_LEVEL = 0;
-    ACTIVE_SCREEN = SCREEN_MAIN_MENU;
     releaseButtonsState();
+    ACTIVE_SCREEN = SCREEN_MAIN_MENU;
   }
 }
 
 void renderRecipeBrewing() {
+  String recipeName = getRecipeName(BREWING_CURRENT_RECIPE);
+  String currentSegment = getCurrentSegment(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED);
+  int segmentDuration = getSegmentDuration(currentSegment);
+  int segmentTemp = getSegmentTemperature(currentSegment);
+  unsigned int mashTimeLeft = getTotalMashTime(BREWING_CURRENT_RECIPE) - BREWIING_TIME_PROCESSED;
+
+  String seats[3] = {
+    recipeName,
+    HEATER_ENABLED ? "HEATING TO " + String(segmentTemp) + DEGREE_SYMBOL : "MASHING",
+    formatTime(mashTimeLeft, false, true) + " MASH LEFT"
+  };
+
   lcd.clear();
   lcd.print(String(THERMOMETER_ONE, 1) + DEGREE_SYMBOL + "/" + String(THERMOMETER_TWO, 1) + DEGREE_SYMBOL);
   lcd.setCursor(0, 1);
-  lcd.print("RECIPE BREWING");
+  lcd.print(horizontalCarousel(seats, 3, true, 16));
 }
 
 void renderManualBrewing() {
@@ -664,17 +710,75 @@ void render() {
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void heaterMode() {
-  
+unsigned int getTotalMashTime(String recipe) {
+  unsigned int totalTime = 0;
+  int segmentsCount = getSegmentsCount(recipe);
+  for (int i = 0; i < segmentsCount; i++) {
+    String segment = getSegment(recipe, i);
+    totalTime += getSegmentDuration(segment) * 60;
+  }
+  return totalTime;
 }
 
-void brewManual() {
+String getCurrentSegment(String recipe, unsigned int timePassed) {
+  unsigned int duration = 0;
+  int segmentsCount = getSegmentsCount(recipe);
+  for (int i = 0; i < segmentsCount; i++) {
+    String segment = getSegment(recipe, i);
+    duration += getSegmentDuration(segment) * 60;
 
+    if (timePassed <= duration) {
+      return segment;
+    }
+  }
+}
+
+unsigned int getCurrentSegmentDuration(String recipe, unsigned int timePassed) {
+  String segment = getCurrentSegment(recipe, timePassed);
+  return getSegmentDuration(segment) * 60;
+}
+
+int getCurrentSegmentTemperature(String recipe, unsigned int timePassed) {
+  String segment = getCurrentSegment(recipe, timePassed);
+  return getSegmentTemperature(segment);
+}
+
+bool isCurrentTemperatureGood(int desiredTemperature) {
+  return (THERMOMETER_ONE + THERMOMETER_TWO) / 2 >= desiredTemperature;
+}
+
+boolean recordMashTime(unsigned int totalMashTime) {
+  if (BREWIING_TIME_PROCESSED < totalMashTime) {
+    if ((millis() % BREW_THROTTLE) == (millis() % 1000)) {
+      BREWIING_TIME_PROCESSED++;
+    }
+    return true;
+  }
+  return false;
 }
 
 void brewRecipe() {
+  if (BREWING_STATE == BREWING_STATE_IDLE) {
+    BREWING_STATE = BREWING_STATE_WORKING;
+  }
 
+  unsigned int totalMashTime = getTotalMashTime(BREWING_CURRENT_RECIPE);
+  unsigned int segmentDuration = getCurrentSegmentDuration(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED);
+  int segmentTemp = getCurrentSegmentTemperature(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED);
+
+  if (BREWING_STATE == BREWING_STATE_WORKING) {
+    if (isCurrentTemperatureGood(segmentTemp)) {
+      turnHeaterOff();
+      if (! recordMashTime(totalMashTime)) {
+        BREWING_STATE = BREWING_STATE_COMPLETED;
+      }
+    } else {
+      turnHeaterOn();
+    }
+  }
 }
+
+void brewManual() {}
 
 void brew() {
   if (millis() - fnThrottle_brew < BREW_THROTTLE) return;
@@ -698,9 +802,7 @@ void setup() {
 
   lcd.begin(16, 2);
 
-  tone(D_PIN_BUZZER, 3830, 50);
-  delay(50);
-  pinMode(D_PIN_BUZZER, INPUT);
+  pinMode(D_PIN_HEATER, OUTPUT);
 
   EEPROM.setMemPool(0, EEPROMSizeUno);
   EEPROM.setMaxAllowedWrites(1000);
@@ -708,9 +810,11 @@ void setup() {
 }
 
 void loop() {
-  requestTemperatures();
-  requestButtonsState();
-  adjustBacklight();
+  requestTemperatureSensors();
+  requestPressedButtons();
+  setBacklightLevel();
+  setHeaterState();
   writeBrewingState();
   render();
+  brew();
 }
