@@ -43,11 +43,11 @@ const char REMINDER_END = ')';
 #define A_PIN_ESCAPE 1 // Reset key, used as Esc
 
 // UI STATE
-int ACTIVE_SCREEN     = 1;
+int ACTIVE_SCREEN = 1;
 
 byte MENU_LEVEL = 0;
-char MENU_ACTIVE[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-char MENU_ACTIVE_PREVIOUS[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+char MENU_ACTIVE[10]          = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+char MENU_ACTIVE_PREVIOUS[10] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 
 int CAROUSEL_ACTIVE_SLIDE = 0;
 int CAROUSEL_SLIDE_CHANGED_AT = 0;
@@ -104,6 +104,8 @@ const char POINTER_SYMBOL = char(165);
 const char DEGREE_SYMBOL = char(223);
 
 // BREWING
+unsigned int BREWIING_TIME_PROCESSED;
+
 byte    BREWING_MODE;
 #define BREWING_MODE_MANUAL 1
 #define BREWING_MODE_RECIPE 2
@@ -217,12 +219,13 @@ void writeSettings() {
 }
 
 void readBrewingState() {
-
+  // TODO: implement
 }
 
 void writeBrewingState() {
   if (millis() - fnThrottle_writeBrewingState < PERSIST_BREWING_THROTTLE) return;
   fnThrottle_writeBrewingState = millis();
+  // TODO: implement
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -336,6 +339,18 @@ int getReminderTime(String reminder) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+String formatTime(unsigned int time, boolean withSeconds) {
+  // TODO: implement
+}
+
+String formatMinutes(unsigned int time) {
+  return formatTime(time, false);
+}
+
+String formatSeconds(unsigned int time) {
+  return formatTime(time, false);
+}
 
 String horizontalCarousel(String items[], int itemsCount, boolean autoPlay, int rowLength) {
   if (CAROUSEL_SLIDE_CHANGED_AT == 0) CAROUSEL_SLIDE_CHANGED_AT = millis();
