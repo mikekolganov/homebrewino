@@ -3,14 +3,15 @@
 // Notes:
 // * Mash pauses are delimited by "|", arbitrary amount of mash pauses, must be terminated with "|"
 // * Reminders are optional and specified in round brackets at end of mash pause definition
-const char RECIPE_1[] PROGMEM = "CHECH|54*20|65*15|72*30|78*10|100*60(TRADITION@1;ZHATETSKIY@55)";
-const char RECIPE_2[] PROGMEM = "HOBGOBLIN|68*60|78*5|100*60(CASCADE@1;GOLDINGS@30;FUGGLE@55)";
-const char RECIPE_3[] PROGMEM = "ZHIGULEVSKOE|54*20|64*15|72*20|78*10|100*90(ISTRA@20;MOSKOW@85)";
-const char RECIPE_4[] PROGMEM = "APA|64*20|72*25|78*5|100*60(Centennial@5;Chinook@55)";
-const char RECIPE_5[] PROGMEM = "VELVET|64*20|72*40|78*10|100*60(Hallertau 1/2@1;Hallertau 1/2@55)";
-const char RECIPE_6[] PROGMEM = "PALE ALE|52*10|63*10|72*20|78*10|100*60(Tettnang@30;Blank@55)";
+const char RECIPE_1[]  PROGMEM = "CHECH|54*20|65*15|72*30|78*10|100*60(TRADITION@1;ZHATETSKIY@55)";
+const char RECIPE_2[]  PROGMEM = "HOBGOBLIN|68*60|78*5|100*60(CASCADE@1;GOLDINGS@30;FUGGLE@55)";
+const char RECIPE_3[]  PROGMEM = "ZHIGULEVSKOE|54*20|64*15|72*20|78*10|100*90(ISTRA@20;MOSKOW@85)";
+const char RECIPE_4[]  PROGMEM = "APA|64*20|72*25|78*5|100*60(Centennial@5;Chinook@55)";
+const char RECIPE_5[]  PROGMEM = "VELVET|64*20|72*40|78*10|100*60(Hallertau 1/2@1;Hallertau 1/2@55)";
+const char RECIPE_6[]  PROGMEM = "PALE ALE|52*10|63*10|72*20|78*10|100*60(Tettnang@30;Blank@55)";
+const char RECIPE_99[] PROGMEM = "TEST|30*2|40*1|50*3|78*1|100*5(Tettnang@0;Blank@3)";
 
-const int RECIPES_COUNT = 6;
+const int RECIPES_COUNT = 7;
 
 const char* const RECIPES[] PROGMEM = {
   RECIPE_1,
@@ -19,6 +20,7 @@ const char* const RECIPES[] PROGMEM = {
   RECIPE_4,
   RECIPE_5,
   RECIPE_6,
+  RECIPE_99
 };
 
 const char SEGMENTS_DELIMITER        = '|';
@@ -69,7 +71,7 @@ boolean CAROUSEL_PREV_SLIDE             = false;
 // UI DELAYS
 #define WELCOME_DELAY  300
 #define BLINK_DELAY    700
-#define CAROUSEL_DELAY 1000
+#define CAROUSEL_DELAY 5000
 
 // UI DIALOGS
 #define DIALOG_MODE_QUESTION 1
@@ -188,7 +190,7 @@ void requestTemperatureSensors(unsigned long now) {
   TEMPERATURE_ONE = sensors.getTempCByIndex(0);
   TEMPERATURE_TWO = sensors.getTempCByIndex(1);
   TEMPERATURE_PREVIOUS = TEMPERATURE;
-  TEMPERATURE = TEMPERATURE_ONE + TEMPERATURE_TWO / 2;
+  TEMPERATURE = (TEMPERATURE_ONE + TEMPERATURE_TWO) / 2;
 
   if ((TEMPERATURE_PREVIOUS) < (TEMPERATURE)) {
     TEMPERATURE_GOES_DOWN = true;
@@ -665,18 +667,23 @@ void renderRecipeBrewing() {
   String currentSegment = getCurrentSegment(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED);
   int segmentDuration = getSegmentDuration(currentSegment);
   int segmentTemp = getSegmentTemperature(currentSegment);
-  unsigned int mashTimeLeft = getTotalMashTime(BREWING_CURRENT_RECIPE) - BREWIING_TIME_PROCESSED;
 
-  String seats[3] = {
+  unsigned int segmentTimeLeft = segmentDuration * 60 - getTimePassedInCurrentSegment(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED);
+  unsigned int mashTimeLeft = getTotalMashTime(BREWING_CURRENT_RECIPE) - BREWIING_TIME_PROCESSED;
+  unsigned int totalTimeLeft = estimateTotalTime(BREWING_CURRENT_RECIPE, BREWIING_TIME_PROCESSED, TEMPERATURE) - BREWIING_TIME_PROCESSED;
+
+  String seats[5] = {
     recipeName,
-    HEATER_ENABLED ? "HEATING TO " + String(segmentTemp) + DEGREE_SYMBOL : "MASHING",
-    formatTime(mashTimeLeft, false, true) + " MASH LEFT"
+    HEATER_ENABLED ? "HEATING " + String(segmentTemp) + DEGREE_SYMBOL : "BREWING " + String(segmentTemp) + DEGREE_SYMBOL,
+    formatTime(segmentTimeLeft, true, true) + " AT " + String(segmentTemp) + DEGREE_SYMBOL,
+    formatTime(mashTimeLeft, true, true) + " MASH",
+    formatTime(totalTimeLeft, true, true) + " TOTAL"
   };
 
   lcd.clear();
   lcd.print(String(TEMPERATURE_ONE, 1) + DEGREE_SYMBOL + "/" + String(TEMPERATURE_TWO, 1) + DEGREE_SYMBOL);
   lcd.setCursor(0, 1);
-  lcd.print(horizontalCarousel(seats, 3, true, 16));
+  lcd.print(horizontalCarousel(seats, 5, true, 16));
 }
 
 void renderManualBrewing() {
@@ -733,8 +740,9 @@ unsigned int getTotalMashTime(String recipe) {
 }
 
 unsigned int estimateHeatingTime(unsigned int fromTemp, unsigned int toTemp) {
+  if (fromTemp > toTemp) { return 0; }
   float hours = (SETTING_TANK_VOLUME * 1.163 * (toTemp - fromTemp)) / SETTING_HEATER_POWER;
-  return hours / 60 / 60;
+  return hours * 60 * 60;
 }
 
 unsigned int estimateTotalTime(String recipe, unsigned int timePassed, int currentTemperature) {
